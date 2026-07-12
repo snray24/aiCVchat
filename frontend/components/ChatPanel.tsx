@@ -9,7 +9,12 @@ interface Message {
 }
 
 export default function ChatPanel() {
-  const [messages, setMessages] = useState<Message[]>([])
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      role: 'assistant',
+      content: 'Hello, I am your AI guide to the IIT Kanpur AIML careers portal. You can select from a sequence of questions starting with Location, Skill or Job Title, or simply ask whatever you want to know about the candidates.'
+    }
+  ])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000'

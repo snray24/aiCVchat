@@ -32,11 +32,9 @@ Rules:
             {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {query}"}
         ]
         
-        # Add limited history if provided
-        if history:
-            # Take last 3 exchanges to keep context small
-            recent_history = history[-6:] if len(history) > 6 else history
-            messages[1:1] = recent_history
+        # Note: History is currently not used to avoid context confusion
+        # Each query is answered independently based on current retrieval results
+        # If conversation history is needed, it should be integrated with context retrieval
         
         try:
             answer = await self.client.chat(messages)
