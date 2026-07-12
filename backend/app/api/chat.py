@@ -1,4 +1,5 @@
 """Chat API endpoint."""
+import re
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
@@ -8,6 +9,17 @@ from app.services.llm_service import llm_service
 from app.core.logging import logger
 
 router = APIRouter()
+
+
+def is_requesting_resumes(message: str) -> bool:
+    """Detect if user is requesting to send/share resumes."""
+    lower_msg = message.lower()
+    patterns = [
+        r'\b(send|share|request|mail|email|forward|transmit|provide).*\b(resume|resumes|cv|profile|document)\b',
+        r'\b(send|share|request|mail|email|forward|transmit|provide).*\b(their|me|them|us)\b',
+        r'\b(resume|resumes|cv).*\b(send|share|mail|email)\b',
+    ]
+    return any(re.search(pattern, lower_msg) for pattern in patterns)
 
 
 @router.post("/api/chat", response_model=ChatResponse)
@@ -25,6 +37,14 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
             return ChatResponse(
                 answer="No matching resumes found in the database.",
                 matches=[],
+                email_required=True
+            )
+        
+        # Check if user is requesting resumes - if so, ask for email instead of generating answer
+        if is_requesting_resumes(request.message):
+            return ChatResponse(
+                answer=f"I found {len(matches)} matching resume(s). To receive them via email, please provide your email address. I can only send resumes to registered users.",
+                matches=matches,
                 email_required=True
             )
         

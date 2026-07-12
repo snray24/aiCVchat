@@ -1,12 +1,24 @@
 'use client'
 
 import { useState } from 'react'
-import { Send, Loader2 } from 'lucide-react'
+import { Send, Loader2, RefreshCw, MapPin, Briefcase, GraduationCap } from 'lucide-react'
+import RequestResumeModal from './RequestResumeModal'
 
 interface Message {
   role: 'user' | 'assistant'
   content: string
 }
+
+interface ResumeMatch {
+  resume_id: string
+  full_name: string
+  current_title: string | null
+  years_experience: number
+  top_skills: string[]
+  short_match_reason: string
+}
+
+type ConversationState = 'welcome' | 'awaiting_location' | 'awaiting_skill' | 'awaiting_job_title' | 'free_chat'
 
 export default function ChatPanel() {
   const [messages, setMessages] = useState<Message[]>([
@@ -17,12 +29,23 @@ export default function ChatPanel() {
   ])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [conversationState, setConversationState] = useState<ConversationState>('welcome')
+  const [currentMatches, setCurrentMatches] = useState<string[]>([])
+  const [showRequestModal, setShowRequestModal] = useState(false)
   const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000'
+
+  // Detect if user is asking to send/request resumes
+  const isRequestingResumes = (message: string): boolean => {
+    const lowerMsg = message.toLowerCase()
+    return /\b(send|share|request|mail|email|forward|transmit|provide).*\b(resume|resumes|cv|profile|document)\b/.test(lowerMsg) ||
+           /\b(send|share|request|mail|email|forward|transmit|provide).*\b(their|me|them|us)\b/.test(lowerMsg)
+  }
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return
 
     const userMessage: Message = { role: 'user', content: input }
+    const userQuery = input
     setMessages(prev => [...prev, userMessage])
     setInput('')
     setIsLoading(true)
@@ -32,7 +55,7 @@ export default function ChatPanel() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: input,
+          message: userQuery,
           filters: {},
           history: messages
         })
@@ -44,10 +67,20 @@ export default function ChatPanel() {
       }
 
       const data = await response.json()
+      
+      // Display the backend response
       const assistantMessage: Message = { role: 'assistant', content: data.answer }
       setMessages(prev => [...prev, assistantMessage])
+      
+      // If backend indicates email is required and we have matches, show modal
+      if (data.email_required && data.matches && data.matches.length > 0 && 
+          data.answer.toLowerCase().includes('email')) {
+        setCurrentMatches(data.matches.map((m: any) => m.resume_id))
+        setShowRequestModal(true)
+      }
+      
+      setConversationState('free_chat')
     } catch (error) {
-      console.error('Chat error:', error)
       console.error('Chat error:', error)
       const errorMessage: Message = { 
         role: 'assistant', 
@@ -59,6 +92,47 @@ export default function ChatPanel() {
     }
   }
 
+  const handleQuickOption = (option: string) => {
+    setInput(option)
+    if (option === 'Location') {
+      setConversationState('awaiting_location')
+    } else if (option === 'Skill') {
+      setConversationState('awaiting_skill')
+    } else if (option === 'Job Title') {
+      setConversationState('awaiting_job_title')
+    }
+  }
+
+  const handleReset = () => {
+    setMessages([
+      {
+        role: 'assistant',
+        content: 'Hello, I am your AI guide to the IIT Kanpur AIML careers portal. You can select from a sequence of questions starting with Location, Skill or Job Title, or simply ask whatever you want to know about the candidates.'
+      }
+    ])
+    setConversationState('welcome')
+    setInput('')
+    setCurrentMatches([])
+    setShowRequestModal(false)
+  }
+
+  const handleResumeRequestSuccess = () => {
+    setShowRequestModal(false)
+    setCurrentMatches([])
+    // Don't add any message to chat - just close modal
+  }
+
+  const handleResumeRequestError = (message: string) => {
+    setShowRequestModal(false)
+    setCurrentMatches([])
+    // Don't add any message to chat - just close modal
+  }
+
+  const handleResumeRequestClose = () => {
+    setShowRequestModal(false)
+    setCurrentMatches([])
+  }
+
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -68,15 +142,18 @@ export default function ChatPanel() {
 
   return (
     <div className="bg-white rounded-lg shadow-lg p-6 h-[600px] flex flex-col">
-      <h2 className="text-xl font-semibold text-slate-800 mb-4">Chat</h2>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xl font-semibold text-slate-800">Chat</h2>
+        <button
+          onClick={handleReset}
+          className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
+          title="Reset conversation"
+        >
+          <RefreshCw className="w-5 h-5" />
+        </button>
+      </div>
       
       <div className="flex-1 overflow-y-auto space-y-4 mb-4">
-        {messages.length === 0 && (
-          <div className="text-center text-slate-400 py-8">
-            <p>Ask questions about candidates and their resumes</p>
-          </div>
-        )}
-        
         {messages.map((msg, idx) => (
           <div
             key={idx}
@@ -97,12 +174,45 @@ export default function ChatPanel() {
         )}
       </div>
 
+      {/* Quick Options */}
+      {conversationState === 'welcome' && (
+        <div className="flex gap-2 mb-4">
+          <button
+            onClick={() => handleQuickOption('Location')}
+            className="flex-1 flex items-center justify-center gap-2 p-3 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors text-slate-700"
+          >
+            <MapPin className="w-4 h-4" />
+            <span className="text-sm">Location</span>
+          </button>
+          <button
+            onClick={() => handleQuickOption('Skill')}
+            className="flex-1 flex items-center justify-center gap-2 p-3 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors text-slate-700"
+          >
+            <GraduationCap className="w-4 h-4" />
+            <span className="text-sm">Skill</span>
+          </button>
+          <button
+            onClick={() => handleQuickOption('Job Title')}
+            className="flex-1 flex items-center justify-center gap-2 p-3 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors text-slate-700"
+          >
+            <Briefcase className="w-4 h-4" />
+            <span className="text-sm">Job Title</span>
+          </button>
+        </div>
+      )}
+
+      {/* Input Area */}
       <div className="flex gap-2">
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyPress={handleKeyPress}
-          placeholder="Type your question..."
+          placeholder={
+            conversationState === 'awaiting_location' ? 'Enter a location...' :
+            conversationState === 'awaiting_skill' ? 'Enter a skill...' :
+            conversationState === 'awaiting_job_title' ? 'Enter a job title...' :
+            'Type your question...'
+          }
           className="flex-1 p-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
           rows={2}
           disabled={isLoading}
@@ -115,6 +225,16 @@ export default function ChatPanel() {
           <Send className="w-5 h-5" />
         </button>
       </div>
+
+      {/* Request Resume Modal */}
+      {showRequestModal && (
+        <RequestResumeModal
+          resumeIds={currentMatches}
+          onSuccess={handleResumeRequestSuccess}
+          onError={handleResumeRequestError}
+          onClose={handleResumeRequestClose}
+        />
+      )}
     </div>
   )
 }

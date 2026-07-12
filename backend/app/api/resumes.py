@@ -27,6 +27,7 @@ async def request_resumes(
     
     # Check allowlist
     is_allowed = allowlist_service.is_email_allowed(normalized_email)
+    logger.info(f"Email check: {normalized_email} -> allowed={is_allowed}")
     
     # Log audit entry
     audit_log = AllowedEmailAuditLog(
@@ -90,5 +91,5 @@ async def request_resumes(
     
     return RequestResumeResponse(
         status="accepted",
-        message="Resumes will be sent to your email shortly."
+        message="You will receive an email with the resume(s) if you are registered with us. Refer our contact page for further details."
     )

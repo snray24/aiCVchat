@@ -9,7 +9,7 @@ class AllowlistService:
     """Service for managing and checking email allowlist."""
     
     def __init__(self):
-        self.allowlist_path = Path("backend/data/allowed_emails.enc")
+        self.allowlist_path = Path("data/allowed_emails.enc")
         self._cached_allowlist: set[str] | None = None
     
     def load_allowlist(self) -> set[str]:

@@ -3,7 +3,7 @@ import asyncio
 from pathlib import Path
 from typing import List
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 from app.models.resume import Resume
 from app.models.resume_chunk import ResumeChunk
 from app.services.resume_parser import resume_parser
@@ -158,12 +158,9 @@ class ResumeIngestionService:
     
     async def reindex_all(self, db: AsyncSession) -> dict:
         """Delete all existing resumes and re-ingest from directory."""
-        # Delete all chunks first (cascade)
-        await db.execute(select(ResumeChunk))
-        await db.execute("DELETE FROM resume_chunks")
-        
-        # Delete all resumes
-        await db.execute("DELETE FROM resumes")
+        # Delete all chunks and resumes using ORM delete
+        await db.execute(delete(ResumeChunk))
+        await db.execute(delete(Resume))
         await db.commit()
         
         logger.info("Cleared existing resumes, re-indexing...")
