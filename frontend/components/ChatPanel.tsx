@@ -58,7 +58,8 @@ export default function ChatPanel() {
           message: userQuery,
           filters: {},
           history: messages
-        })
+        }),
+        signal: AbortSignal.timeout(300000) // 5 minute timeout for LLM inference via ngrok
       })
 
       if (!response.ok) {
@@ -82,11 +83,23 @@ export default function ChatPanel() {
       setConversationState('free_chat')
     } catch (error) {
       console.error('Chat error:', error)
-      const errorMessage: Message = { 
-        role: 'assistant', 
-        content: 'Sorry, I encountered an error. Please try again.' 
+      let errorMessage = 'Sorry, I encountered an error. Please try again.'
+      
+      if (error instanceof Error) {
+        if (error.name === 'AbortError') {
+          errorMessage = 'Request timed out. The model is taking longer than expected. Please try again.'
+        } else if (error.message.includes('Failed to fetch')) {
+          errorMessage = 'Unable to connect to the server. Please check if the backend is running.'
+        } else {
+          errorMessage = `Error: ${error.message}`
+        }
       }
-      setMessages(prev => [...prev, errorMessage])
+      
+      const errorResponse: Message = { 
+        role: 'assistant', 
+        content: errorMessage
+      }
+      setMessages(prev => [...prev, errorResponse])
     } finally {
       setIsLoading(false)
     }
@@ -133,7 +146,7 @@ export default function ChatPanel() {
     setCurrentMatches([])
   }
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSend()
@@ -206,7 +219,7 @@ export default function ChatPanel() {
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyPress={handleKeyPress}
+          onKeyDown={handleKeyDown}
           placeholder={
             conversationState === 'awaiting_location' ? 'Enter a location...' :
             conversationState === 'awaiting_skill' ? 'Enter a skill...' :

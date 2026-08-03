@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     
     # Ollama
     ollama_base_url: str = "http://localhost:11434"
-    ollama_chat_model: str = "mistral"
+    ollama_chat_model: str = "mistral:7b"  #"gemma4:12b"
     ollama_embed_model: str = "embeddinggemma"
     
     # SMTP

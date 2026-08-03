@@ -26,7 +26,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 ```bash
 # Install Ollama from https://ollama.ai
 # Pull required models
-ollama pull mistral
+ollama pull gemma4:12b
 ollama pull embeddinggemma
 ```
 

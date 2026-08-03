@@ -47,7 +47,7 @@ AI-powered resume search and chatbot application for querying candidate resumes 
 
 ### LLM/Embeddings
 - Ollama local server
-- Chat model: mistral (configurable)
+- Chat model: gemma4:12b (configurable)
 - Embedding model: embeddinggemma (configurable)
 
 ## Prerequisites
@@ -78,7 +78,7 @@ psql -d resume_chatbot -c "CREATE EXTENSION IF NOT EXISTS vector;"
 ```bash
 # Install Ollama from https://ollama.ai
 # Pull required models
-ollama pull mistral
+ollama pull gemma4:12b
 ollama pull embeddinggemma
 
 # Start Ollama server
@@ -235,7 +235,7 @@ See `backend/.env.example`:
 
 - `DATABASE_URL` - PostgreSQL connection string
 - `OLLAMA_BASE_URL` - Ollama server URL (default: http://localhost:11434)
-- `OLLAMA_CHAT_MODEL` - Chat model name (default: mistral)
+- `OLLAMA_CHAT_MODEL` - Chat model name (default: gemma4:12b)
 - `OLLAMA_EMBED_MODEL` - Embedding model name (default: embeddinggemma)
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` - Email settings
 - `ADMIN_TOKEN` - Token for admin endpoints

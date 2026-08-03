@@ -13,13 +13,19 @@ app = FastAPI(
 )
 
 # CORS middleware
-frontend_origins = [settings.frontend_origin]
-if settings.frontend_origin.startswith("http://localhost"):
-    frontend_origins.append(settings.frontend_origin.replace("localhost", "127.0.0.1"))
+frontend_origins = [origin.strip() for origin in settings.frontend_origin.split(",")]
+# Add localhost/127.0.0.1 variants for local development
+expanded_origins = []
+for origin in frontend_origins:
+    expanded_origins.append(origin)
+    if origin.startswith("http://localhost"):
+        expanded_origins.append(origin.replace("localhost", "127.0.0.1"))
+    elif origin.startswith("http://127.0.0.1"):
+        expanded_origins.append(origin.replace("127.0.0.1", "localhost"))
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=list(dict.fromkeys(frontend_origins)),
+    allow_origins=list(dict.fromkeys(expanded_origins)),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

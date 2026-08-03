@@ -64,12 +64,14 @@ class OllamaClient:
                 response = await client.post(url, json=payload)
                 response.raise_for_status()
                 data = response.json()
+                logger.info(f"Ollama embed response: {data.keys()}")
                 embedding = self._extract_embedding(data)
                 if not embedding:
                     raise ValueError(f"Ollama returned no embedding payload: {data}")
                 return embedding
             except httpx.HTTPError as e:
                 logger.error(f"Ollama embed error: {e}")
+                logger.error(f"Request payload: {payload}")
                 raise
     
     async def embed_batch(self, texts: List[str]) -> List[List[float]]:
