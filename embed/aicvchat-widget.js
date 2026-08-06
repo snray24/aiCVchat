@@ -244,8 +244,8 @@
   function mergeConfig() {
     var page = global.AiCVChatConfig || {};
     var base = {
-      apiBaseUrl: "",
-      siteKey: "",
+      apiBaseUrl: "http://localhost:8000",
+      siteKey: "aicv_r4SzhOXI5z4Ndpvu7ZNFvjgNahsm-xiP",
       chatPath: "/api/embed/chat",
       sessionPath: "/api/embed/session",
       title: "eMasters Talent Assistant",
