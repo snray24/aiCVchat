@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { Users, Mail, Check } from 'lucide-react'
+import { authHeaders } from '../lib/embedAuth'
 
 interface CandidateMatch {
   resume_id: string
@@ -28,9 +29,10 @@ export default function ResultsPanel({
 
   const handleSearch = async () => {
     try {
+      const headers = await authHeaders(apiBaseUrl)
       const response = await fetch(`${apiBaseUrl}/api/search`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           query: 'candidates',
           filters: {},

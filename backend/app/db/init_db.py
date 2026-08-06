@@ -7,6 +7,7 @@ from app.models.resume import Resume
 from app.models.resume_chunk import ResumeChunk
 from app.models.resume_request import ResumeRequest
 from app.models.audit_log import AllowedEmailAuditLog
+from app.models.embed_site import EmbedSite  # noqa: F401 — register metadata
 from app.core.logging import logger
 
 

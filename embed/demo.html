@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AiCV Chat Widget Demo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&family=Lora:wght@600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --blue-900: #0a1e42;
+      --blue-800: #0f2a55;
+      --blue-600: #1c4e8b;
+      --gold-500: #e0ad2e;
+      --offwhite: #f7f9fc;
+      --body: #2a3350;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Lato, system-ui, sans-serif;
+      color: var(--body);
+      background:
+        radial-gradient(900px 420px at 80% -10%, rgba(44,111,191,.18), transparent 60%),
+        linear-gradient(180deg, #eaf2fb, var(--offwhite) 40%, #dfe8f4);
+    }
+    header {
+      padding: clamp(28px, 6vw, 64px) clamp(20px, 5vw, 48px) 24px;
+      max-width: 960px;
+    }
+    .eyebrow {
+      display: inline-block;
+      font-size: 12px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--blue-600);
+      font-weight: 700;
+      margin-bottom: 10px;
+    }
+    h1 {
+      font-family: Lora, Georgia, serif;
+      color: var(--blue-900);
+      font-size: clamp(28px, 5vw, 44px);
+      line-height: 1.15;
+      margin: 0 0 12px;
+      max-width: 16ch;
+    }
+    p { max-width: 52ch; margin: 0 0 18px; font-size: 16px; }
+    .card {
+      margin: 0 clamp(20px, 5vw, 48px) 80px;
+      max-width: 720px;
+      background: #fff;
+      border: 1px solid #e2e8f2;
+      border-radius: 18px;
+      padding: 20px 22px;
+      box-shadow: 0 18px 40px rgba(15,42,85,.08);
+    }
+    .card h2 { margin: 0 0 8px; color: var(--blue-800); font-size: 18px; }
+    .card code { background: #eaf2fb; padding: 1px 6px; border-radius: 6px; font-size: 13px; }
+    .hint { color: #5b6478; font-size: 14px; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: linear-gradient(135deg, var(--blue-800), var(--blue-600));
+      color: #fff; border-radius: 999px; padding: 8px 14px; font-size: 13px; font-weight: 700;
+    }
+    .pill i {
+      width: 8px; height: 8px; border-radius: 50%; background: var(--gold-500);
+      box-shadow: 0 0 0 3px rgba(224,173,46,.35);
+    }
+    .warn { color: #8a2438; font-size: 14px; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="eyebrow">eMasters · AI &amp; ML · IIT Kanpur</div>
+    <h1>Hire experienced AI talent — try the chat widget</h1>
+    <p>
+      Standalone embed (Shadow DOM). Auth requires a registered domain + site key.
+      Open with <code>?key=YOUR_SITE_KEY</code> after registering <code>localhost</code>.
+    </p>
+    <div class="pill"><i></i> Widget demo · domain-bound session tokens</div>
+  </header>
+
+  <section class="card">
+    <h2>Register then load</h2>
+    <p class="hint">
+      <code>python scripts/register_embed_site.py --name "Local demo" --domain localhost</code>
+      then open <code>/embed/demo.html?key=…</code> or use
+      <code>&lt;script src="/embed/loader.js?key=…&amp;openOnLoad=1"&gt;</code>.
+    </p>
+    <p class="hint" id="key-status">Looking for site key in the URL…</p>
+  </section>
+
+  <script>
+    (function () {
+      var params = new URLSearchParams(location.search);
+      var key = params.get("key") || "";
+      var status = document.getElementById("key-status");
+      if (!key) {
+        status.className = "warn";
+        status.textContent =
+          "No ?key= in the URL — chat will be denied until you register a site and reload with the key.";
+      } else {
+        status.textContent = "Using site key " + key.slice(0, 12) + "…";
+      }
+      var qs = "openOnLoad=1";
+      if (key) qs += "&key=" + encodeURIComponent(key);
+      var s = document.createElement("script");
+      s.src = "/embed/loader.js?" + qs;
+      s.async = true;
+      document.body.appendChild(s);
+    })();
+  </script>
+</body>
+</html>

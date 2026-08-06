@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AiCV Chat — Dynamic Embed Snippet</title>
+  <style>
+    :root {
+      --blue-800: #0f2a55;
+      --blue-600: #1c4e8b;
+      --line: #e2e8f2;
+      --off: #f7f9fc;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      color: var(--blue-800);
+      background: linear-gradient(180deg, #eaf2fb, var(--off));
+      min-height: 100vh;
+      padding: 40px 20px 80px;
+    }
+    main { max-width: 760px; margin: 0 auto; }
+    h1 { font-size: clamp(26px, 4vw, 36px); margin: 0 0 10px; }
+    p { line-height: 1.5; color: #2a3350; }
+    .card {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 18px 18px 16px;
+      box-shadow: 0 12px 32px rgba(15,42,85,.08);
+      margin-top: 20px;
+    }
+    .label {
+      font-family: Lato, system-ui, sans-serif;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      color: var(--blue-600);
+      margin-bottom: 8px;
+    }
+    pre {
+      margin: 0;
+      padding: 14px;
+      background: #0a1e42;
+      color: #eaf2fb;
+      border-radius: 12px;
+      overflow: auto;
+      font-family: ui-monospace, Consolas, monospace;
+      font-size: 13px;
+      line-height: 1.45;
+      min-height: 3.2em;
+    }
+    .row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; align-items: center; }
+    button, a.btn {
+      font-family: Lato, system-ui, sans-serif;
+      border: 0;
+      border-radius: 999px;
+      padding: 10px 16px;
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 13px;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .primary { background: linear-gradient(135deg, var(--blue-800), var(--blue-600)); color: #fff; }
+    .ghost { background: #eaf2fb; color: var(--blue-800); }
+    .status { font-family: Lato, system-ui, sans-serif; font-size: 13px; color: #5b6478; }
+    .status.ok { color: #1a7f4b; }
+    .status.err { color: #8a2438; }
+    input[type="text"] {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      font-family: ui-monospace, Consolas, monospace;
+      font-size: 13px;
+    }
+    code { background: #eaf2fb; padding: 1px 6px; border-radius: 6px; font-family: ui-monospace, monospace; font-size: 12.5px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Embed snippet (auto-generated)</h1>
+    <p>
+      Register a domain with the admin API to get a <code>site_key</code>, paste it below,
+      then copy the one-liner. The loader binds chat to that domain via short-lived session tokens.
+    </p>
+
+    <div class="card">
+      <div class="label">Site key</div>
+      <input id="site-key" type="text" placeholder="aicv_…" autocomplete="off" />
+      <div class="row">
+        <button type="button" class="primary" id="generate">Generate snippet</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="label">Ready-to-paste snippet</div>
+      <pre id="snippet">Enter a site key and click Generate…</pre>
+      <div class="row">
+        <button type="button" class="primary" id="copy">Copy snippet</button>
+        <a class="btn ghost" id="loader-link" href="#" target="_blank" rel="noopener">Open loader.js</a>
+        <span class="status" id="status"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="label">API payload</div>
+      <pre id="json">—</pre>
+    </div>
+  </main>
+
+  <script>
+    (function () {
+      var snippetEl = document.getElementById("snippet");
+      var jsonEl = document.getElementById("json");
+      var statusEl = document.getElementById("status");
+      var loaderLink = document.getElementById("loader-link");
+      var keyInput = document.getElementById("site-key");
+      var currentSnippet = "";
+
+      var params = new URLSearchParams(location.search);
+      if (params.get("key")) keyInput.value = params.get("key");
+
+      function apiOrigin() {
+        if (location.protocol === "http:" || location.protocol === "https:") {
+          return location.origin;
+        }
+        return "http://localhost:8000";
+      }
+
+      function load() {
+        var base = apiOrigin();
+        var key = (keyInput.value || "").trim();
+        var url = base + "/api/embed/snippet";
+        if (key) url += "?key=" + encodeURIComponent(key);
+        statusEl.textContent = "Fetching…";
+        statusEl.className = "status";
+        fetch(url, { headers: { Accept: "application/json" } })
+          .then(function (r) {
+            if (!r.ok) throw new Error("HTTP " + r.status);
+            return r.json();
+          })
+          .then(function (data) {
+            currentSnippet = data.snippet || "";
+            snippetEl.textContent = data.full_snippet || data.snippet || "";
+            jsonEl.textContent = JSON.stringify(data, null, 2);
+            loaderLink.href = data.loader_url || (base + "/embed/loader.js");
+            statusEl.textContent = key
+              ? "Generated for " + data.api_base_url + " + site key"
+              : "Generated without site key — chat will fail if EMBED_AUTH_REQUIRED=true";
+            statusEl.className = "status ok";
+          })
+          .catch(function (err) {
+            snippetEl.textContent = "Could not reach API.";
+            jsonEl.textContent = String(err && err.message ? err.message : err);
+            statusEl.textContent = "Is the backend running?";
+            statusEl.className = "status err";
+          });
+      }
+
+      document.getElementById("generate").addEventListener("click", load);
+      document.getElementById("copy").addEventListener("click", function () {
+        var text = currentSnippet || snippetEl.textContent;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(function () {
+            statusEl.textContent = "Copied to clipboard";
+            statusEl.className = "status ok";
+          });
+        }
+      });
+
+      if (keyInput.value) load();
+    })();
+  </script>
+</body>
+</html>
