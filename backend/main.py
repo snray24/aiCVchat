@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
 from app.core.logging import logger
 from app.core.middleware import DynamicCORSMiddleware, SecurityHeadersMiddleware
-from app.api import health, chat, search, resumes, admin, embed
+from app.api import health, chat, search, resumes, admin, embed, embed_admin
 
 # Create FastAPI app
 app = FastAPI(
@@ -33,6 +33,7 @@ app.include_router(search.router)
 app.include_router(resumes.router)
 app.include_router(admin.router)
 app.include_router(embed.router)
+app.include_router(embed_admin.router)
 
 # Embeddable chat widget assets (JS snippet + demo)
 # Note: GET /embed/loader.js is handled by embed.router above (dynamic).

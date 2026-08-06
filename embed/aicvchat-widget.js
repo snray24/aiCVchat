@@ -1,6 +1,6 @@
 /**
  * AiCV Chat — embeddable widget (vanilla JS, Shadow DOM)
- * Does not depend on the Next.js frontend. Calls POST /api/chat.
+ * Does not depend on the Next.js frontend. Calls POST /api/embed/chat.
  */
 (function (global) {
   "use strict";
@@ -246,7 +246,7 @@
     var base = {
       apiBaseUrl: "",
       siteKey: "",
-      chatPath: "/api/chat",
+      chatPath: "/api/embed/chat",
       sessionPath: "/api/embed/session",
       title: "eMasters Talent Assistant",
       subtitle: "IIT Kanpur · AI & ML cohort",
@@ -648,11 +648,24 @@
     return items;
   };
 
-  AiCVChat.prototype.send = function () {
+    AiCVChat.prototype.send = function () {
     var text = (this.els.input.value || "").trim();
     if (!text || this.busy) return;
 
     var self = this;
+    if (!(this.cfg.siteKey || "").trim()) {
+      this._pushMessage({
+        id: "e-" + Date.now(),
+        role: "assistant",
+        content:
+          "This embed is missing a site key. Register the domain and load the widget with ?key=…",
+        at: new Date(),
+        isError: true,
+        status: "read"
+      });
+      this._render();
+      return;
+    }
     var userMsg = this._pushMessage({
       id: "u-" + Date.now(),
       role: "user",
@@ -675,7 +688,7 @@
       }, this.cfg.requestTimeoutMs || 120000);
     }
 
-    var url = this.apiBase + (this.cfg.chatPath || "/api/chat");
+    var url = this.apiBase + (this.cfg.chatPath || "/api/embed/chat");
 
     this.ensureSession()
       .then(function (token) {

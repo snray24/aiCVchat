@@ -10,7 +10,12 @@ from app.core.embed_tokens import create_embed_token
 from app.core.logging import logger
 from app.core.rate_limit import ip_limiter, site_limiter
 from app.db.session import get_db
+from app.schemas.chat import ChatRequest, ChatResponse
 from app.schemas.embed import EmbedSessionRequest, EmbedSessionResponse
+from app.schemas.search import SearchRequest, SearchResponse
+from app.services.retrieval_service import retrieval_service
+from app.services.llm_service import llm_service
+from app.api.deps import require_embed_session
 from app.services.embed_site_service import (
     client_ip_from_request,
     get_site_by_key,
@@ -24,11 +29,18 @@ router = APIRouter(tags=["embed"])
 
 
 def public_base_url(request: Request) -> str:
-    """Resolve the externally visible API origin from the request."""
-    forwarded_proto = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip()
-    forwarded_host = (request.headers.get("x-forwarded-host") or "").split(",")[0].strip()
-    host = forwarded_host or request.headers.get("host") or request.url.netloc
-    scheme = forwarded_proto or request.url.scheme or "http"
+    """Resolve the externally visible API origin from the request.
+
+    Forwarded Host/Proto are honoured only when ``TRUST_PROXY=true``.
+    """
+    if settings.trust_proxy:
+        forwarded_proto = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip()
+        forwarded_host = (request.headers.get("x-forwarded-host") or "").split(",")[0].strip()
+        host = forwarded_host or request.headers.get("host") or request.url.netloc
+        scheme = forwarded_proto or request.url.scheme or "http"
+    else:
+        host = request.headers.get("host") or request.url.netloc
+        scheme = request.url.scheme or "http"
     return f"{scheme}://{host}".rstrip("/")
 
 
@@ -61,12 +73,16 @@ def build_loader_js(
     """JS that sets apiBaseUrl (+ optional siteKey) and loads config + widget."""
     open_js = "true" if open_on_load else "false"
     position_js = position.replace("\\", "\\\\").replace("'", "\\'")
-    site_key_js = (site_key or "").replace("\\", "\\\\").replace("'", "\\'")
+    # Only allow expected site-key charset to prevent JS string breakout
+    raw_key = site_key or ""
+    if raw_key and not all(c.isalnum() or c in "_-" for c in raw_key):
+        raw_key = ""
+    site_key_js = raw_key
     return f"""/*! AiCV Chat dynamic loader — generated */
 (function (g) {{
   "use strict";
   var API_BASE = {base!r};
-  var SITE_KEY = '{site_key_js}';
+  var SITE_KEY = {site_key_js!r};
   var cfg = g.AiCVChatConfig = Object.assign({{
     apiBaseUrl: API_BASE,
     position: '{position_js}',
@@ -175,15 +191,25 @@ async def create_embed_session(
     db: AsyncSession = Depends(get_db),
 ):
     """Issue a short-lived session token bound to site_key + Origin host."""
-    if settings.require_https_for_embed:
-        proto = (
+    # Production must not mint tokens with a weak/default HMAC secret
+    if settings.app_env.lower() == "production" and not (settings.embed_token_secret or "").strip():
+        raise HTTPException(
+            status_code=503,
+            detail="EMBED_TOKEN_SECRET is not configured",
+        )
+
+    scheme = (
+        (
             (request.headers.get("x-forwarded-proto") or request.url.scheme or "http")
             .split(",")[0]
             .strip()
             .lower()
         )
-        if proto != "https":
-            raise HTTPException(status_code=403, detail="HTTPS required for embed sessions")
+        if settings.trust_proxy
+        else (request.url.scheme or "http").lower()
+    )
+    if settings.require_https_for_embed and scheme != "https":
+        raise HTTPException(status_code=403, detail="HTTPS required for embed sessions")
 
     client_ip = client_ip_from_request(
         request.headers,
@@ -206,22 +232,16 @@ async def create_embed_session(
         logger.warning(f"Embed session denied: IP {client_ip} not allowlisted for {site.domain}")
         raise HTTPException(status_code=403, detail="Client IP not allowed for this site key")
 
+    # CRITICAL: do not fall back to Host (API host) — that bypasses domain binding
     origin = origin_from_request_headers(
         request.headers.get("origin"),
         request.headers.get("referer"),
     )
     if not origin:
-        # Same-origin file/demo fallback: use Host header as http(s)://host
-        host = request.headers.get("host")
-        if host:
-            scheme = (
-                (request.headers.get("x-forwarded-proto") or request.url.scheme or "http")
-                .split(",")[0]
-                .strip()
-            )
-            origin = f"{scheme}://{host}"
-        else:
-            raise HTTPException(status_code=403, detail="Missing Origin/Referer")
+        raise HTTPException(
+            status_code=403,
+            detail="Missing Origin/Referer — open the widget from the registered website",
+        )
 
     origin_host = normalize_host(origin)
     if not host_matches_domain(origin_host, site.domain, site.allow_subdomains):
@@ -244,3 +264,100 @@ async def create_embed_session(
         expires_in=ttl,
         api_base_url=base,
     )
+
+
+@router.post("/api/embed/chat", response_model=ChatResponse)
+async def embed_chat(
+    body: ChatRequest,
+    db: AsyncSession = Depends(get_db),
+    _session: dict = Depends(require_embed_session),
+):
+    """
+    Purpose:
+        Secured chat for the embed widget only (does not alter ``POST /api/chat``).
+
+    Receives:
+        body (ChatRequest): message, optional filters/history.
+        Authorization: Bearer <embed session token>.
+
+    Returns:
+        ChatResponse: answer, matches, email_required.
+    """
+    try:
+        matches = await retrieval_service.search(
+            query=body.message,
+            db=db,
+            filters=body.filters,
+        )
+        if not matches:
+            return ChatResponse(
+                answer="No matching resumes found in the database.",
+                matches=[],
+                email_required=True,
+            )
+        if _is_requesting_resumes(body.message):
+            return ChatResponse(
+                answer=(
+                    f"I found {len(matches)} matching resume(s). To receive them via email, "
+                    "please provide your email address. I can only send resumes to registered users."
+                ),
+                matches=matches,
+                email_required=True,
+            )
+        resume_ids = [m.resume_id for m in matches]
+        context = await retrieval_service.get_context_for_resumes(resume_ids, db)
+        answer = await llm_service.generate_answer(
+            query=body.message,
+            context=context,
+            history=body.history,
+        )
+        return ChatResponse(answer=answer, matches=matches, email_required=True)
+    except Exception as e:
+        logger.error(f"Embed chat error: {e}")
+        return ChatResponse(
+            answer="I encountered an error processing your request. Please try again.",
+            matches=[],
+            email_required=True,
+        )
+
+
+@router.post("/api/embed/search", response_model=SearchResponse)
+async def embed_search(
+    body: SearchRequest,
+    db: AsyncSession = Depends(get_db),
+    _session: dict = Depends(require_embed_session),
+):
+    """
+    Purpose:
+        Secured search for embed clients only (does not alter ``POST /api/search``).
+
+    Receives:
+        body (SearchRequest): query, optional filters/top_k.
+        Authorization: Bearer <embed session token>.
+
+    Returns:
+        SearchResponse: matches, total.
+    """
+    try:
+        matches = await retrieval_service.search(
+            query=body.query,
+            db=db,
+            filters=body.filters,
+        )
+        return SearchResponse(matches=matches, total=len(matches))
+    except Exception as e:
+        logger.error(f"Embed search error: {e}")
+        return SearchResponse(matches=[], total=0)
+
+
+def _is_requesting_resumes(message: str) -> bool:
+    """Detect resume-send intent (embed chat only; mirrors legacy chat helper)."""
+    import re
+
+    lower_msg = message.lower()
+    patterns = [
+        r"\b(send|share|request|mail|email|forward|transmit|provide).*\b(resume|resumes|cv|profile|document)\b",
+        r"\b(send|share|request|mail|email|forward|transmit|provide).*\b(their|me|them|us)\b",
+        r"\b(resume|resumes|cv).*\b(send|share|mail|email)\b",
+    ]
+    return any(re.search(pattern, lower_msg) for pattern in patterns)

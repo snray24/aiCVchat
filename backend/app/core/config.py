@@ -42,6 +42,8 @@ class Settings(BaseSettings):
     embed_site_rate_limit_per_minute: int = 60
     # When None, HTTPS is required only if app_env == production
     embed_require_https: Optional[bool] = None
+    # Only trust X-Forwarded-* / X-Real-IP when behind a reverse proxy you control
+    trust_proxy: bool = False
 
     # Limits
     max_resumes_per_request: int = 5

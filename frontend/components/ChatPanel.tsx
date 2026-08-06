@@ -3,7 +3,6 @@
 import { useState } from 'react'
 import { Send, Loader2, RefreshCw, MapPin, Briefcase, GraduationCap } from 'lucide-react'
 import RequestResumeModal from './RequestResumeModal'
-import { authHeaders } from '../lib/embedAuth'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -52,10 +51,9 @@ export default function ChatPanel() {
     setIsLoading(true)
 
     try {
-      const headers = await authHeaders(apiBaseUrl)
       const response = await fetch(`${apiBaseUrl}/api/chat`, {
         method: 'POST',
-        headers,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: userQuery,
           filters: {},

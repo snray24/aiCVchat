@@ -22,8 +22,8 @@
      */
     siteKey: "",
 
-    /** Chat endpoint path (appended to apiBaseUrl). */
-    chatPath: "/api/chat",
+    /** Chat endpoint path (appended to apiBaseUrl). Secured embed route. */
+    chatPath: "/api/embed/chat",
 
     /** Session endpoint path */
     sessionPath: "/api/embed/session",

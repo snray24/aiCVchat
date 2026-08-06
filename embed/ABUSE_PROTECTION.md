@@ -8,6 +8,14 @@ This document describes the **embed abuse-protection** feature: registering webs
 
 Related widget install docs: [README.md](./README.md).
 
+### File status legend
+
+| Abbr | Meaning |
+|------|---------|
+| **[NEW]** | Created for this feature (did not exist before) |
+| **[MOD]** | Pre-existing file, changed to support this feature |
+| **[PRE]** | Pre-existing file, **not** changed for embed auth (referenced for context only) |
+
 ---
 
 ## What has been done
@@ -17,13 +25,13 @@ Related widget install docs: [README.md](./README.md).
 | Domain registration | Admin registers a hostname → unique public `site_key` (`aicv_…`) |
 | Snippet generation | Loader URL includes `?key=…`; API can generate the one-liner |
 | Session minting | `POST /api/embed/session` validates Origin/Referer (+ optional IP allowlist) |
-| Chat/search gate | Bearer token required when `EMBED_AUTH_REQUIRED=true` (default) |
+| Chat/search gate | Embed-only: Bearer required on `/api/embed/chat` and `/api/embed/search` (legacy `/api/chat` unchanged) |
 | Token design | HMAC-SHA256, ~10 min TTL, bound to `site_id` + origin host |
 | Dynamic CORS | Only `FRONTEND_ORIGIN` + active registered domains (not open `*` by default) |
 | Rate limits | In-process sliding window per IP and per site key |
 | Transport hardening | Security headers; HTTPS enforced in production |
 | Ops CLI | `scripts/register_embed_site.py` prints key + snippet |
-| Next.js compatibility | Frontend attaches the same Bearer token via `NEXT_PUBLIC_EMBED_SITE_KEY` |
+| Legacy APIs | `/api/chat`, `/api/search`, Next.js UI left unchanged |
 
 **Not in scope:** end-user OAuth, CAPTCHA/WAF, Redis-backed distributed rate limits.
 
@@ -33,34 +41,36 @@ Related widget install docs: [README.md](./README.md).
 
 ```
 aiCVchat/
-├── embed/                          # Standalone widget (no Next.js)
-│   ├── aicvchat-widget.js          # UI + ensureSession() + Authorization on chat
-│   ├── config.js                   # siteKey, apiBaseUrl, paths
-│   ├── demo.html / snippet.html    # Demo & snippet helper (?key=)
-│   ├── README.md                   # Widget install guide
-│   └── ABUSE_PROTECTION.md         # This document
+├── embed/                                    [NEW] folder
+│   ├── aicvchat-widget.js                    [NEW]
+│   ├── config.js                             [NEW]
+│   ├── demo.html / snippet.html              [NEW]
+│   ├── README.md                             [NEW]
+│   └── ABUSE_PROTECTION.md                   [NEW]
 ├── backend/
 │   ├── app/
-│   │   ├── models/embed_site.py    # embed_sites table
-│   │   ├── schemas/embed.py        # Create/Out/Session DTOs
+│   │   ├── models/embed_site.py              [NEW]
+│   │   ├── schemas/embed.py                  [NEW]
 │   │   ├── core/
-│   │   │   ├── embed_tokens.py     # HMAC mint/verify + site_key gen
-│   │   │   ├── rate_limit.py       # Sliding-window limiters
-│   │   │   ├── middleware.py       # Dynamic CORS + security headers
-│   │   │   └── config.py           # EMBED_* / CORS settings (modified)
-│   │   ├── services/embed_site_service.py  # Domain/IP/CORS helpers
+│   │   │   ├── embed_tokens.py               [NEW]
+│   │   │   ├── rate_limit.py                 [NEW]
+│   │   │   ├── middleware.py                 [NEW]
+│   │   │   └── config.py                     [MOD]  EMBED_* / TRUST_PROXY / CORS defaults
+│   │   ├── services/embed_site_service.py    [NEW]
 │   │   ├── api/
-│   │   │   ├── embed.py            # loader, snippet, session
-│   │   │   ├── deps.py             # require_embed_session
-│   │   │   ├── admin.py            # embed-sites CRUD (modified)
-│   │   │   ├── chat.py / search.py # gated (modified)
-│   │   │   └── …
-│   │   └── db/init_db.py           # registers EmbedSite (modified)
-│   ├── scripts/register_embed_site.py
-│   └── main.py                     # middleware + /embed mount (modified)
-└── frontend/
-    ├── lib/embedAuth.ts            # Session helper for Next app
-    └── components/ChatPanel.tsx, ResultsPanel.tsx  # send Bearer (modified)
+│   │   │   ├── embed.py                      [NEW]  loader, session, /api/embed/chat|search
+│   │   │   ├── embed_admin.py                [NEW]  /api/admin/embed-sites*
+│   │   │   ├── deps.py                       [NEW]  require_embed_session
+│   │   │   ├── admin.py                      [PRE]  ingest/reindex only
+│   │   │   ├── chat.py / search.py           [PRE]  legacy APIs (ungated)
+│   │   │   └── resumes.py                    [PRE]
+│   │   └── db/
+│   │       ├── init_db.py                    [MOD]  registers EmbedSite model
+│   │       └── session.py                    [MOD]  connect_timeout
+│   ├── scripts/register_embed_site.py        [NEW]
+│   ├── main.py                               [MOD]  middleware + /embed mount + routers
+│   └── .env.example                          [MOD]  documents EMBED_* / TRUST_PROXY
+└── frontend/                                 [PRE]  unchanged for embed auth
 ```
 
 ### Database
@@ -98,7 +108,7 @@ sequenceDiagram
   API->>DB: lookup active embed_sites by site_key
   API->>API: match Origin host / optional client IP
   API-->>Loader: access_token expires_in
-  Loader->>API: POST /api/chat Authorization Bearer token
+  Loader->>API: POST /api/embed/chat Authorization Bearer token
   API->>API: verify HMAC Origin site active rate limit
   API-->>Loader: answer + matches
 ```
@@ -106,75 +116,67 @@ sequenceDiagram
 1. **Register** domain (admin token) → receive `site_key` + HTML snippet.  
 2. **Install** `<script src="https://api…/embed/loader.js?key=…">` on that domain only.  
 3. Widget **opens session**; server checks Origin against registered domain.  
-4. Widget **chats** with `Authorization: Bearer <token>`; token expires (~600s) and is refreshed client-side before expiry.
+4. Widget **chats** via **`POST /api/embed/chat`** with `Authorization: Bearer <token>` (legacy `/api/chat` is untouched). Token expires (~600s) and is refreshed client-side before expiry.
 
 ---
 
-## Files added
+## Files inventory
 
-### Backend (new)
+### [NEW] — Created for this feature
 
-| File | Role |
-|------|------|
-| [`backend/app/models/embed_site.py`](../backend/app/models/embed_site.py) | ORM model |
-| [`backend/app/schemas/embed.py`](../backend/app/schemas/embed.py) | Pydantic DTOs |
-| [`backend/app/core/embed_tokens.py`](../backend/app/core/embed_tokens.py) | Token mint/verify, key generation |
-| [`backend/app/core/rate_limit.py`](../backend/app/core/rate_limit.py) | IP/site sliding windows |
-| [`backend/app/core/middleware.py`](../backend/app/core/middleware.py) | Dynamic CORS + security headers |
-| [`backend/app/services/embed_site_service.py`](../backend/app/services/embed_site_service.py) | Domain/IP/CORS cache helpers |
-| [`backend/app/api/deps.py`](../backend/app/api/deps.py) | `require_embed_session` dependency |
-| [`backend/app/api/embed.py`](../backend/app/api/embed.py) | Loader, snippet, session endpoints |
-| [`backend/scripts/register_embed_site.py`](../backend/scripts/register_embed_site.py) | CLI registration |
+| Status | File | Role |
+|--------|------|------|
+| **[NEW]** | [`backend/app/models/embed_site.py`](../backend/app/models/embed_site.py) | ORM `embed_sites` table |
+| **[NEW]** | [`backend/app/schemas/embed.py`](../backend/app/schemas/embed.py) | Pydantic DTOs |
+| **[NEW]** | [`backend/app/core/embed_tokens.py`](../backend/app/core/embed_tokens.py) | HMAC mint/verify + site key gen |
+| **[NEW]** | [`backend/app/core/rate_limit.py`](../backend/app/core/rate_limit.py) | IP/site sliding windows |
+| **[NEW]** | [`backend/app/core/middleware.py`](../backend/app/core/middleware.py) | Dynamic CORS + security headers |
+| **[NEW]** | [`backend/app/services/embed_site_service.py`](../backend/app/services/embed_site_service.py) | Domain/IP/CORS helpers |
+| **[NEW]** | [`backend/app/api/embed.py`](../backend/app/api/embed.py) | Loader, snippet, session, `/api/embed/chat` + `/api/embed/search` |
+| **[NEW]** | [`backend/app/api/embed_admin.py`](../backend/app/api/embed_admin.py) | Embed-site create/list/revoke/rotate |
+| **[NEW]** | [`backend/app/api/deps.py`](../backend/app/api/deps.py) | `require_embed_session` (embed routes only) |
+| **[NEW]** | [`backend/scripts/register_embed_site.py`](../backend/scripts/register_embed_site.py) | CLI registration |
+| **[NEW]** | `embed/aicvchat-widget.js` | Widget UI + session + chat |
+| **[NEW]** | `embed/config.js` | Defaults including `siteKey` |
+| **[NEW]** | `embed/demo.html` | Local demo (`?key=`) |
+| **[NEW]** | `embed/snippet.html` | Snippet helper UI |
+| **[NEW]** | `embed/README.md` | Widget install guide |
+| **[NEW]** | `embed/ABUSE_PROTECTION.md` | This document |
 
-### Embed package (new folder)
+### [MOD] — Pre-existing, modified for this feature
 
-| File | Role |
-|------|------|
-| `embed/aicvchat-widget.js` | Widget UI + session + chat |
-| `embed/config.js` | Defaults including `siteKey` |
-| `embed/demo.html` / `snippet.html` | Local helpers |
-| `embed/README.md` | Widget usage |
-| `embed/ABUSE_PROTECTION.md` | This feature doc |
+| Status | File | Change |
+|--------|------|--------|
+| **[MOD]** | `backend/app/core/config.py` | `EMBED_*` / `TRUST_PROXY`; CORS default tightened |
+| **[MOD]** | `backend/main.py` | Middleware; `/embed` mount; embed routers |
+| **[MOD]** | `backend/app/db/init_db.py` | Import `EmbedSite` for `create_all` |
+| **[MOD]** | `backend/app/db/session.py` | DB `connect_timeout` |
+| **[MOD]** | `backend/.env.example` | Document embed/CORS env vars |
 
-### Frontend (new)
+### [PRE] — Pre-existing, unchanged (context only)
 
-| File | Role |
-|------|------|
-| [`frontend/lib/embedAuth.ts`](../frontend/lib/embedAuth.ts) | Obtain/cache Bearer token for Next.js |
-
----
-
-## Files modified
-
-| File | Change |
-|------|--------|
-| `backend/app/core/config.py` | `EMBED_*` settings; `cors_allow_any_origin` default `false` |
-| `backend/main.py` | Dynamic CORS/security middleware; `/embed` static mount |
-| `backend/app/api/admin.py` | Embed-site create/list/revoke/rotate-key |
-| `backend/app/api/chat.py` | `Depends(require_embed_session)` |
-| `backend/app/api/search.py` | Same gate |
-| `backend/app/db/init_db.py` | Import `EmbedSite` for `create_all` |
-| `backend/app/db/session.py` | DB `connect_timeout` (startup resilience) |
-| `backend/.env.example` | Document embed/CORS env vars |
-| `frontend/components/ChatPanel.tsx` | Send `Authorization` via `authHeaders` |
-| `frontend/components/ResultsPanel.tsx` | Same for search |
-| `frontend/.env.example` | `NEXT_PUBLIC_EMBED_SITE_KEY` |
+| Status | File | Notes |
+|--------|------|--------|
+| **[PRE]** | `backend/app/api/chat.py` | Legacy `/api/chat` — no embed session required |
+| **[PRE]** | `backend/app/api/search.py` | Legacy `/api/search` |
+| **[PRE]** | `backend/app/api/resumes.py` | Legacy `/api/request-resumes` |
+| **[PRE]** | `backend/app/api/admin.py` | Ingest/reindex only (token check unchanged) |
+| **[PRE]** | `frontend/**` | Next.js UI — still uses legacy APIs |
 
 ---
-
 ## Impact
 
 | Area | Impact |
 |------|--------|
-| **Third-party embeds** | Must use a registered domain + `site_key`; hotlinking another site’s key fails Origin check |
-| **Open API abuse** | `/api/chat` and `/api/search` reject unauthenticated callers when auth is on |
-| **CORS** | Unknown origins no longer get `*`; set `CORS_ALLOW_ANY_ORIGIN=true` only as emergency |
-| **Next.js UI** | Needs `NEXT_PUBLIC_EMBED_SITE_KEY` for `localhost` (or your front host), or chat returns 401 |
-| **Ops** | Register each customer domain before go-live; rotate keys on compromise |
-| **Postgres** | New `embed_sites` table; backend must reach DB for registration/session (chat still needs DB for resumes) |
+| **Third-party embeds** | Must use registered domain + `site_key`; call `/api/embed/chat` with session |
+| **Legacy Next.js /api/chat** | Unchanged — no site key required |
+| **Open embed abuse** | Unauthorized origins cannot obtain sessions or call `/api/embed/*` protected routes |
+| **CORS** | Unknown origins denied (unless `CORS_ALLOW_ANY_ORIGIN=true` emergency) |
+| **Ops** | Register each customer domain before embed go-live; rotate keys on compromise |
+| **Postgres** | New `embed_sites` table required for registration/session |
 | **Performance** | Token verify is local HMAC; CORS origins cached ~30s; rate limits are in-process (per machine) |
 
-**Break-glass (local only):** `EMBED_AUTH_REQUIRED=false` — disables the chat/search gate. Do not use in production.
+**Break-glass (local only):** `EMBED_AUTH_REQUIRED=false` — disables the **embed** chat/search gate (`/api/embed/chat`). Does not affect legacy `/api/chat`. Do not use in production.
 
 ---
 
@@ -182,17 +184,17 @@ sequenceDiagram
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `EMBED_AUTH_REQUIRED` | `true` | Gate chat/search with Bearer token |
+| `EMBED_AUTH_REQUIRED` | `true` | Gate `/api/embed/chat` and `/api/embed/search` with Bearer token |
 | `EMBED_TOKEN_SECRET` | _(empty → weak dev fallback)_ | HMAC secret — **set in production** |
 | `EMBED_TOKEN_TTL_SECONDS` | `600` | Session lifetime |
 | `EMBED_RATE_LIMIT_PER_MINUTE` | `20` | Per client IP |
 | `EMBED_SITE_RATE_LIMIT_PER_MINUTE` | `60` | Per site key |
 | `EMBED_REQUIRE_HTTPS` | _(unset → on if `APP_ENV=production`)_ | Reject non-HTTPS sessions/chat |
+| `TRUST_PROXY` | `false` | Trust `X-Forwarded-*` / `X-Real-IP` (only behind your proxy) |
 | `CORS_ALLOW_ANY_ORIGIN` | `false` | Emergency open CORS |
 | `FRONTEND_ORIGIN` | `http://localhost:3000` | Always-allowed frontends (comma-separated) |
 | `ADMIN_TOKEN` | — | Required for site registration APIs |
-| `NEXT_PUBLIC_EMBED_SITE_KEY` | — | Site key for the Next.js app origin |
-| `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:8000` | API base for Next.js |
+| `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:8000` | API base for Next.js (unchanged; no embed key) |
 
 ---
 
@@ -248,15 +250,7 @@ Helpers:
 
 ### 4. Next.js local app
 
-1. Register `--domain localhost` (covers `localhost` / `127.0.0.1` for session matching).  
-2. Set in `frontend/.env.local`:
-
-```env
-NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
-NEXT_PUBLIC_EMBED_SITE_KEY=aicv_your_key_here
-```
-
-3. Restart `npm run dev`.
+No embed site key needed. The Next.js UI keeps using `/api/chat` as before.
 
 ### 5. Production checklist
 
@@ -272,17 +266,19 @@ NEXT_PUBLIC_EMBED_SITE_KEY=aicv_your_key_here
 
 ## API quick reference
 
-| Method | Path | Auth | Purpose |
-|--------|------|------|---------|
-| `POST` | `/api/admin/embed-sites` | `X-Admin-Token` | Register domain → `site_key` |
-| `GET` | `/api/admin/embed-sites` | `X-Admin-Token` | List sites |
-| `POST` | `/api/admin/embed-sites/{id}/revoke` | `X-Admin-Token` | Deactivate |
-| `POST` | `/api/admin/embed-sites/{id}/rotate-key` | `X-Admin-Token` | New key |
-| `POST` | `/api/embed/session` | Origin + `site_key` body | Mint Bearer token |
-| `GET` | `/embed/loader.js?key=` | — | Dynamic loader JS |
-| `GET` | `/api/embed/snippet?key=` | — | Generated HTML snippet |
-| `POST` | `/api/chat` | Bearer (if auth on) | Chat |
-| `POST` | `/api/search` | Bearer (if auth on) | Search |
+| Method | Path | Auth | Status | Purpose |
+|--------|------|------|--------|---------|
+| `POST` | `/api/admin/embed-sites` | `X-Admin-Token` | **[NEW]** | Register domain → `site_key` |
+| `GET` | `/api/admin/embed-sites` | `X-Admin-Token` | **[NEW]** | List sites |
+| `POST` | `/api/admin/embed-sites/{id}/revoke` | `X-Admin-Token` | **[NEW]** | Deactivate |
+| `POST` | `/api/admin/embed-sites/{id}/rotate-key` | `X-Admin-Token` | **[NEW]** | New key |
+| `POST` | `/api/embed/session` | Origin + `site_key` body | **[NEW]** | Mint Bearer token |
+| `GET` | `/embed/loader.js?key=` | — | **[NEW]** | Dynamic loader JS |
+| `GET` | `/api/embed/snippet?key=` | — | **[NEW]** | Generated HTML snippet |
+| `POST` | `/api/embed/chat` | Bearer embed session | **[NEW]** | Secured chat for widget |
+| `POST` | `/api/embed/search` | Bearer embed session | **[NEW]** | Secured search for widget |
+| `POST` | `/api/chat` | None | **[PRE]** | Legacy Next.js / API chat |
+| `POST` | `/api/search` | None | **[PRE]** | Legacy search |
 
 ### Session request / response
 
@@ -305,9 +301,27 @@ NEXT_PUBLIC_EMBED_SITE_KEY=aicv_your_key_here
 ## Security notes for future development
 
 - Site keys in HTML are **public**; never treat them as passwords. Binding + short TTL + rate limits + HTTPS are the real controls.  
-- On revoke/rotate, invalidate CORS cache is already called (`invalidate_cors_cache`).  
+- On revoke/rotate, invalidate CORS cache is already called (`invalidate_cors_cache`). Tokens with the old `site_key` are rejected after rotate.  
 - Multi-instance: replace `ip_limiter` / `site_limiter` in `rate_limit.py` with Redis.  
-- New endpoints that burn LLM/DB should use `Depends(require_embed_session)` the same way as chat/search.
+- New embed endpoints that burn LLM/DB should use `Depends(require_embed_session)` on `/api/embed/*` only — do not gate legacy `/api/chat`.
+- Set `TRUST_PROXY=true` only behind a reverse proxy you control; otherwise clients can spoof `X-Forwarded-For` / Host.
+
+### Review fixes (2026-08-06)
+
+| Issue | Fix |
+|-------|-----|
+| Session fell back to `Host` (API host) when Origin missing — bypassed domain binding | Require Origin/Referer only |
+| Chat skipped Origin check when header absent (stolen token usable via curl) | Require Origin/Referer and match token host |
+| Key rotate left old tokens valid until TTL | Compare token `sk` to current DB `site_key` |
+| `X-Forwarded-*` trusted unconditionally | Gated by `TRUST_PROXY` |
+| CORS host-only match allowed http↔https downgrade | Exact origin; localhost aliases only |
+| Bare TLD registration (`com` + subdomains) | `is_safe_registered_domain` |
+| Admin token `!=` compare | `hmac.compare_digest` |
+| `/api/request-resumes` ungated | Left on legacy API; embed does not use it |
+| Per-site rate limit ignored on chat | Applied on `/api/embed/chat` |
+| Weak prod HMAC secret | Session mint fails if secret empty in production |
+| Loader JS string injection via `key` query | Charset allowlist + `repr` embedding |
+| Auth applied to Next.js / legacy chat | **Reverted** — security scoped to embed routes only |
 
 ---
 

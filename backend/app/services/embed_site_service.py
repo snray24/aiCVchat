@@ -149,25 +149,81 @@ def ip_allowed(client_ip: Optional[str], allowed_ips: Optional[Iterable[str]]) -
     return client_ip.strip() in allow
 
 
+def is_safe_registered_domain(domain: str) -> bool:
+    """
+    Purpose:
+        Reject domains that would over-authorize (bare TLDs, empty, wildcards).
+
+    Receives:
+        domain (str): Already normalized hostname.
+
+    Returns:
+        bool: True if acceptable to store as EmbedSite.domain.
+    """
+    if not domain or len(domain) > 253:
+        return False
+    if "*" in domain or "/" in domain or " " in domain:
+        return False
+    # localhost and loopback are allowed without a dot
+    if domain in ("localhost", "127.0.0.1", "::1"):
+        return True
+    # IPv4 literal
+    parts = domain.split(".")
+    if len(parts) == 4 and all(p.isdigit() and 0 <= int(p) <= 255 for p in parts):
+        return True
+    # Require at least one dot (block bare TLDs like "com" with allow_subdomains)
+    if "." not in domain:
+        return False
+    if domain.startswith(".") or domain.endswith("."):
+        return False
+    labels = domain.split(".")
+    if any(not label or len(label) > 63 for label in labels):
+        return False
+    return True
+
+
 def client_ip_from_request(headers, client_host: Optional[str]) -> Optional[str]:
     """
     Purpose:
-        Best-effort client IP behind proxies.
+        Best-effort client IP. Forwarded headers are used only when TRUST_PROXY=true.
 
     Receives:
         headers: Mapping with optional ``x-forwarded-for`` / ``x-real-ip``.
         client_host (str | None): Direct TCP peer from ASGI scope.
 
     Returns:
-        str | None: First forwarded IP, real-ip, or peer host.
+        str | None: Client IP string.
     """
-    forwarded = (headers.get("x-forwarded-for") or "").split(",")[0].strip()
-    if forwarded:
-        return forwarded
-    real_ip = (headers.get("x-real-ip") or "").strip()
-    if real_ip:
-        return real_ip
+    if settings.trust_proxy:
+        forwarded = (headers.get("x-forwarded-for") or "").split(",")[0].strip()
+        if forwarded:
+            return forwarded
+        real_ip = (headers.get("x-real-ip") or "").strip()
+        if real_ip:
+            return real_ip
     return client_host
+
+
+async def get_site_by_id(db: AsyncSession, site_id: str) -> Optional[EmbedSite]:
+    """
+    Purpose:
+        Load an active EmbedSite by UUID (for token re-validation after rotate).
+
+    Receives:
+        db (AsyncSession): DB session.
+        site_id (str): UUID string.
+
+    Returns:
+        EmbedSite | None: Active row or None.
+    """
+    try:
+        sid = uuid.UUID(str(site_id))
+    except Exception:
+        return None
+    result = await db.execute(
+        select(EmbedSite).where(EmbedSite.id == sid, EmbedSite.is_active.is_(True))
+    )
+    return result.scalar_one_or_none()
 
 
 async def get_site_by_key(db: AsyncSession, site_key: str) -> Optional[EmbedSite]:
@@ -306,7 +362,7 @@ async def get_cached_cors_origins(db: Optional[AsyncSession] = None) -> Set[str]
 def origin_allowed_sync(origin: str, allowed: Set[str]) -> bool:
     """
     Purpose:
-        Sync check whether a browser Origin is in the allow set (exact or same host).
+        Sync check whether a browser Origin is in the allow set.
 
     Receives:
         origin (str): Request Origin header value.
@@ -314,14 +370,30 @@ def origin_allowed_sync(origin: str, allowed: Set[str]) -> bool:
 
     Returns:
         bool: True if CORS should echo this Origin.
+
+    Notes:
+        Exact origin match preferred. Host-only match is limited to localhost
+        aliases to avoid http↔https scheme downgrade on real domains.
     """
     if not origin:
         return False
     if origin in allowed:
         return True
-    # Also allow if host matches any registered origin host
     host = normalize_host(origin)
+    hostname = host.split(":")[0]
+    if hostname not in ("localhost", "127.0.0.1"):
+        return False
     for allowed_origin in allowed:
         if normalize_host(allowed_origin) == host:
             return True
+        # localhost ↔ 127.0.0.1 with same port
+        ah = normalize_host(allowed_origin)
+        if ah.split(":")[0] in ("localhost", "127.0.0.1") and hostname in (
+            "localhost",
+            "127.0.0.1",
+        ):
+            ap = ah.split(":")[1] if ":" in ah else ""
+            rp = host.split(":")[1] if ":" in host else ""
+            if ap == rp:
+                return True
     return False
