@@ -14,13 +14,13 @@
 
   var defaults = {
     /** API origin only — no trailing slash. Empty = auto from script src. */
-    apiBaseUrl: "",
+    apiBaseUrl: "http://localhost:8000",
 
     /**
      * Site key from POST /api/admin/embed-sites (required when EMBED_AUTH_REQUIRED).
      * Prefer baking via /embed/loader.js?key=...
      */
-    siteKey: "",
+    siteKey: "aicv_r4SzhOXI5z4Ndpvu7ZNFvjgNahsm-xiP",
 
     /** Chat endpoint path (appended to apiBaseUrl). Secured embed route. */
     chatPath: "/api/embed/chat",
