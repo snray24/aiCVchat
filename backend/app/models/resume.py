@@ -13,7 +13,9 @@ class Resume(Base):
     __tablename__ = "resumes"
     
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    full_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    candidate_id: Mapped[str] = mapped_column(String(9), nullable=True, index=True)
+    current_designation: Mapped[str] = mapped_column(String(255), nullable=True)
+    full_name: Mapped[str] = mapped_column(String(255), nullable=True, index=True)
     current_title: Mapped[str] = mapped_column(String(255), nullable=True)
     total_years_experience: Mapped[int] = mapped_column(Integer, nullable=True)
     summary: Mapped[str] = mapped_column(Text, nullable=True)

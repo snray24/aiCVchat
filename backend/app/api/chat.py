@@ -2,11 +2,13 @@
 import re
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
 from app.db.session import get_db
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.services.retrieval_service import retrieval_service
 from app.services.llm_service import llm_service
 from app.core.logging import logger
+from app.models.resume import Resume
 
 router = APIRouter()
 
@@ -22,10 +24,32 @@ def is_requesting_resumes(message: str) -> bool:
     return any(re.search(pattern, lower_msg) for pattern in patterns)
 
 
+def is_asking_total_count(message: str) -> bool:
+    """Detect if the user is asking for the total number of indexed resumes/candidates."""
+    lower_msg = message.lower()
+    patterns = [
+        r"\bhow many (candidates|resumes|profiles|people)\b",
+        r"\btotal (candidates|resumes|profiles)\b",
+        r"\bnumber of (candidates|resumes|profiles)\b",
+        r"\bhow many do you have\b",
+    ]
+    return any(re.search(p, lower_msg) for p in patterns)
+
+
 @router.post("/api/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
     """Chat endpoint for resume search and Q&A."""
     try:
+        # If user asks for total inventory, return DB count instead of search-topk
+        if is_asking_total_count(request.message):
+            result = await db.execute(select(func.count()).select_from(Resume))
+            total = result.scalar_one()
+            return ChatResponse(
+                answer=f"We currently have {total} indexed resume(s).",
+                matches=[],
+                email_required=False
+            )
+
         # Search for matching resumes
         matches = await retrieval_service.search(
             query=request.message,

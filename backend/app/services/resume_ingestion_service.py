@@ -59,11 +59,19 @@ class ResumeIngestionService:
                 logger.warning(f"No text extracted from: {file_path}")
                 return None
             
-            # Extract metadata using LLM
+            # Extract candidate ID and designation
+            candidate_id, current_designation = self.parser.extract_candidate_id_and_designation(text, file_path)
+            
+            # Parse resume sections
+            sections = self.parser.parse_resume_sections(text)
+            
+            # Extract metadata using LLM (for backward compatibility)
             metadata = await self.llm.extract_metadata(text)
             
             # Create or refresh resume record
             resume = existing_resume or Resume(
+                candidate_id=candidate_id,
+                current_designation=current_designation,
                 full_name=metadata.get("full_name") or file_path.stem,
                 current_title=metadata.get("current_title"),
                 total_years_experience=metadata.get("total_years_experience"),
@@ -79,6 +87,8 @@ class ResumeIngestionService:
                 file_hash=file_hash
             )
             if existing_resume:
+                resume.candidate_id = candidate_id
+                resume.current_designation = current_designation
                 resume.full_name = metadata.get("full_name") or file_path.stem
                 resume.current_title = metadata.get("current_title")
                 resume.total_years_experience = metadata.get("total_years_experience")
@@ -98,21 +108,31 @@ class ResumeIngestionService:
             await db.flush()
             await db.execute(delete(ResumeChunk).where(ResumeChunk.resume_id == resume.id))
             
-            # Chunk and embed
-            chunks = self.chunker.chunk_with_metadata(text, {
-                "resume_id": str(resume.id),
-                "file_name": file_path.name
-            })
+            # Chunk and embed using section-based approach
+            chunks = self.chunker.chunk_sections(sections, candidate_id)
             
             # Generate embeddings for chunks
             chunk_texts = [c["chunk_text"] for c in chunks]
             embeddings = await self.embedder.embed_texts(chunk_texts)
             
-            # Store chunks
+            # Store chunks with section_type and candidate_id
             for idx, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+                from app.models.resume_chunk import SectionType
+                
+                # Convert section_type string back to enum
+                section_type_str = chunk.get("section_type")
+                section_type = None
+                if section_type_str:
+                    try:
+                        section_type = SectionType(section_type_str)
+                    except ValueError:
+                        logger.warning(f"Invalid section_type: {section_type_str}")
+                
                 resume_chunk = ResumeChunk(
                     resume_id=resume.id,
-                    chunk_index=idx,
+                    candidate_id=candidate_id,
+                    section_type=section_type,
+                    chunk_index=chunk["chunk_index"],
                     chunk_text=chunk["chunk_text"],
                     embedding=embedding,
                     metadata_json=chunk["metadata"]
