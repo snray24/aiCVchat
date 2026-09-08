@@ -1,10 +1,17 @@
-name: New MCP server
-version: 0.0.1
-schema: v1
 mcpServers:
-  - name: New MCP server
-    command: npx
+  filesystem:
+    command: "npx"
     args:
-      - -y
-      - <your-mcp-server>
-    env: {}
+      - "-y"
+      - "@modelcontextprotocol/server-filesystem"
+      - "/path/to/your/allowed/workspace"
+  # Add more servers here to provide the 'tools' needed for Agent mode
+  # example: a sqlite server, a web search tool, or custom scripts.
+
+# If you are using specific models that support "Agent" capabilities 
+# in Continue (like Claude 3.5 Sonnet), ensure they are correctly mapped:
+models:
+  - name: mistral:7b 
+    title: "Mistral 7B"
+    provider: ollama
+    model: mistral:7b
